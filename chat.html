@@ -132,9 +132,66 @@
                 opacity: 1;
             }
         }
+
+        .connection-status {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1000;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .connection-status.connected {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+
+        .connection-status.disconnected {
+            background: #fecaca;
+            color: #dc2626;
+            border: 1px solid #fca5a5;
+        }
+
+        .status-dot {
+            width: 0.5rem;
+            height: 0.5rem;
+            border-radius: 50%;
+        }
+
+        .status-dot.connected {
+            background: #22c55e;
+        }
+
+        .status-dot.disconnected {
+            background: #ef4444;
+        }
+
+        .error-message {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            margin-top: 0.5rem;
+            font-size: 0.875rem;
+        }
     </style>
 </head>
 <body class="text-deep-charcoal">
+    <!-- Connection Status Indicator -->
+    <div id="connection-status" class="connection-status disconnected">
+        <div class="status-dot disconnected"></div>
+        <span>Connecting to API...</span>
+    </div>
+
     <!-- Navigation -->
     <nav class="bg-soft-cream/90 backdrop-blur-md border-b border-warm-stone/20">
         <div class="max-w-7xl mx-auto px-6 py-4">
@@ -296,10 +353,10 @@
                         <div class="flex-1">
                             <div class="bg-soft-cream rounded-2xl p-4">
                                 <p class="text-sm leading-relaxed mb-3">
-                                    Welcome to Samudra-I! I'm your AI-powered oceanographic research assistant. I can help you analyze ocean data, generate visualizations, and provide insights from ARGO floats and other oceanographic datasets.
+                                    Welcome to Samudra-I! I'm your AI-powered oceanographic research assistant powered by advanced RAG (Retrieval-Augmented Generation) technology. I can help you analyze ocean data, generate visualizations, and provide insights from ARGO floats and other oceanographic datasets.
                                 </p>
                                 <p class="text-sm text-warm-stone">
-                                    Try asking me about temperature trends, salinity patterns, current velocities, or any other oceanographic phenomena. I'll provide you with data-driven insights and traceable sources.
+                                    Try asking me about temperature trends, salinity patterns, current velocities, or any other oceanographic phenomena. I'll provide you with data-driven insights, traceable sources, and can generate visualizations when relevant.
                                 </p>
                             </div>
                             
@@ -379,11 +436,23 @@
     </div>
 
     <script>
+        // Enhanced Configuration
+        const CONFIG = {
+            API_BASE_URL: 'http://localhost:7777',
+            ENABLE_FALLBACK: true,
+            CONNECTION_CHECK_INTERVAL: 30000,
+            MAX_RETRIES: 3,
+            RETRY_DELAY: 2000
+        };
+
         class ChatApp {
             constructor() {
                 this.user = null;
                 this.messages = [];
                 this.isTyping = false;
+                this.apiBaseUrl = CONFIG.API_BASE_URL;
+                this.connectionStatus = false;
+                this.retryCount = 0;
                 this.init();
             }
 
@@ -391,18 +460,29 @@
                 this.loadUser();
                 this.setupEventListeners();
                 this.loadRecentQueries();
+                this.checkConnection();
                 this.animateEntrance();
+                
+                // Periodic connection check
+                setInterval(() => {
+                    this.checkConnection();
+                }, CONFIG.CONNECTION_CHECK_INTERVAL);
             }
 
             loadUser() {
+                // Create a default user if none exists
                 const userData = localStorage.getItem('samudra_user');
                 if (userData) {
                     this.user = JSON.parse(userData);
-                    this.updateUserInterface();
                 } else {
-                    // Redirect to auth if no user
-                    window.location.href = 'auth.html';
+                    this.user = {
+                        name: 'Ocean Researcher',
+                        email: 'researcher@marine.org',
+                        id: 'user_' + Math.random().toString(36).substr(2, 9)
+                    };
+                    localStorage.setItem('samudra_user', JSON.stringify(this.user));
                 }
+                this.updateUserInterface();
             }
 
             updateUserInterface() {
@@ -416,13 +496,60 @@
                 }
             }
 
+            async checkConnection() {
+                try {
+                    const response = await fetch(`${this.apiBaseUrl}/api/status`, {
+                        method: 'GET',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+                    
+                    this.connectionStatus = response.ok;
+                    this.retryCount = 0;
+                    this.updateConnectionStatus(true);
+                } catch (error) {
+                    this.connectionStatus = false;
+                    this.updateConnectionStatus(false, error.message);
+                }
+            }
+
+            updateConnectionStatus(connected, errorMessage = '') {
+                const statusElement = document.getElementById('connection-status');
+                const statusDot = statusElement.querySelector('.status-dot');
+                const statusText = statusElement.querySelector('span');
+                
+                if (connected) {
+                    statusElement.className = 'connection-status connected';
+                    statusDot.className = 'status-dot connected';
+                    statusText.textContent = 'Connected to Samudra-I API';
+                } else {
+                    statusElement.className = 'connection-status disconnected';
+                    statusDot.className = 'status-dot disconnected';
+                    statusText.textContent = `API Connection Failed${errorMessage ? ': ' + errorMessage : ''}`;
+                }
+                
+                // Auto-hide after 5 seconds if connected
+                if (connected) {
+                    setTimeout(() => {
+                        statusElement.style.opacity = '0';
+                        setTimeout(() => {
+                            if (this.connectionStatus) {
+                                statusElement.style.display = 'none';
+                            }
+                        }, 300);
+                    }, 5000);
+                } else {
+                    statusElement.style.display = 'flex';
+                    statusElement.style.opacity = '1';
+                }
+            }
+
             setupEventListeners() {
                 const chatInput = document.getElementById('chat-input');
                 const sendButton = document.getElementById('send-message');
                 const newChatButton = document.getElementById('new-chat');
                 const logoutButton = document.getElementById('logout-btn');
-                const chartModal = document.getElementById('chart-modal');
-                const closeChart = document.getElementById('close-chart');
 
                 // Auto-resize textarea
                 chatInput.addEventListener('input', () => {
@@ -471,17 +598,6 @@
                         const actionText = button.querySelector('.font-medium').textContent;
                         this.handleQuickAction(actionText);
                     });
-                });
-
-                // Chart modal
-                closeChart.addEventListener('click', () => {
-                    chartModal.classList.add('hidden');
-                });
-
-                chartModal.addEventListener('click', (e) => {
-                    if (e.target === chartModal) {
-                        chartModal.classList.add('hidden');
-                    }
                 });
             }
 
@@ -536,25 +652,51 @@
 
             renderMessageContent(content, type, isUser) {
                 if (type === 'text') {
+                    let processedContent = content;
+                    if (typeof content === 'string') {
+                        processedContent = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                        processedContent = processedContent.replace(/\n/g, '<br>');
+                    }
+                    
                     return `
                         <div class="${isUser ? 'bg-copper-orange text-white' : 'bg-soft-cream'} rounded-2xl p-4 inline-block max-w-2xl text-left">
-                            <p class="text-sm leading-relaxed">${content}</p>
+                            <p class="text-sm leading-relaxed">${processedContent}</p>
                         </div>
                     `;
-                } else if (type === 'chart') {
+                } else if (type === 'sources') {
+                    return `
+                        <div class="bg-blue-50 border-l-4 border-blue-400 rounded-r-2xl p-4 max-w-2xl">
+                            <p class="text-sm text-blue-800">${content}</p>
+                        </div>
+                    `;
+                } else if (type === 'visualization') {
                     return `
                         <div class="bg-soft-cream rounded-2xl p-4 max-w-2xl">
-                            <div class="chart-container rounded-lg p-4 mb-3">
-                                <div id="chart-${Date.now()}" style="height: 200px;"></div>
+                            <div class="mb-3">
+                                <p class="text-sm text-warm-stone mb-3">${content.description}</p>
+                                ${content.chart_url ? `
+                                    <div class="chart-container rounded-lg p-2 mb-3 bg-white">
+                                        <img src="${content.chart_url}" alt="Generated Chart" class="w-full h-auto rounded" style="max-height: 300px; object-fit: contain;">
+                                    </div>
+                                ` : ''}
                             </div>
-                            <p class="text-sm text-warm-stone mb-3">${content.description}</p>
                             <div class="flex space-x-2">
-                                <button class="chart-expand px-3 py-1 bg-copper-orange text-white rounded text-xs hover:bg-copper-orange/90 transition-colors">
-                                    Expand Chart
+                                <button class="chart-expand px-3 py-1 bg-copper-orange text-white rounded text-xs hover:bg-copper-orange/90 transition-colors" 
+                                        onclick="window.open('${content.chart_url}', '_blank')">
+                                    View Full Size
                                 </button>
-                                <button class="px-3 py-1 border border-copper-orange text-copper-orange rounded text-xs hover:bg-copper-orange hover:text-white transition-colors">
-                                    Export Data
+                                <button class="px-3 py-1 border border-copper-orange text-copper-orange rounded text-xs hover:bg-copper-orange hover:text-white transition-colors"
+                                        onclick="chatApp.downloadChart('${content.chart_url}')">
+                                    Download Chart
                                 </button>
+                            </div>
+                        </div>
+                    `;
+                } else if (type === 'error') {
+                    return `
+                        <div class="bg-soft-cream rounded-2xl p-4 max-w-2xl">
+                            <div class="error-message">
+                                <p class="text-sm">${content}</p>
                             </div>
                         </div>
                     `;
@@ -595,125 +737,128 @@
                 }
             }
 
-            generateResponse(userMessage) {
-                // Simulate AI response generation
-                setTimeout(() => {
+            async generateResponse(userMessage) {
+                try {
+                    // Prepare chat history for the API
+                    const history = this.messages
+                        .filter(msg => msg.type === 'text')
+                        .map(msg => ({
+                            role: msg.sender === 'user' ? 'user' : 'assistant',
+                            content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+                        }));
+
+                    // Call FastAPI backend with retry logic
+                    const response = await this.makeAPICall(`${this.apiBaseUrl}/chat`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            message: userMessage,
+                            history: history,
+                            use_knowledge: true
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    
                     this.hideTypingIndicator();
                     
-                    const response = this.getAIResponse(userMessage);
-                    this.addMessage(response.content, 'ai', response.type);
+                    // Add the AI response
+                    this.addMessage(data.response, 'ai', 'text');
                     
-                    if (response.type === 'chart') {
-                        setTimeout(() => {
-                            this.renderChart(response.chartData);
-                        }, 100);
+                    // Handle visualizations if present
+                    if (data.has_visualizations && data.visualizations && data.visualizations.length > 0) {
+                        this.displayVisualizations(data.visualizations);
+                    }
+                    
+                    // Display sources if available
+                    if (data.sources && data.sources.length > 0) {
+                        this.displaySources(data.sources);
                     }
                     
                     this.saveToRecentQueries(userMessage);
-                }, 2000 + Math.random() * 2000); // Random delay for realism
-            }
-
-            getAIResponse(userMessage) {
-                // Mock AI responses based on user input
-                const lowerMessage = userMessage.toLowerCase();
-                
-                if (lowerMessage.includes('temperature') || lowerMessage.includes('temp')) {
-                    return {
-                        content: {
-                            description: "Based on ARGO float data from the last 6 months, I've analyzed global ocean temperature trends. The data shows significant warming in the Pacific Ocean, with an average increase of 0.3°C compared to historical baselines.",
-                            data: this.generateTemperatureData()
-                        },
-                        type: 'chart'
-                    };
-                } else if (lowerMessage.includes('salinity')) {
-                    return {
-                        content: "Salinity patterns reveal interesting variations across ocean basins. The North Atlantic shows higher salinity due to evaporation and limited freshwater input, while the Arctic regions exhibit lower salinity from ice melt and river runoff. ARGO data indicates a gradual freshening trend in subpolar regions over the past decade.",
-                        type: 'text'
-                    };
-                } else if (lowerMessage.includes('current') || lowerMessage.includes('gulf stream')) {
-                    return {
-                        content: "The Gulf Stream continues to show robust flow patterns, with current velocities averaging 1.5-2.5 m/s in the core region. Recent ARGO measurements indicate slight weakening in the subtropical gyre, potentially related to climate variability. The current maintains its characteristic meandering pattern, influencing regional climate and marine ecosystems.",
-                        type: 'text'
-                    };
-                } else if (lowerMessage.includes('argo') || lowerMessage.includes('float')) {
-                    return {
-                        content: "Currently, there are 3,847 active ARGO floats providing global ocean coverage. These autonomous profiling instruments measure temperature and salinity from surface to 2,000m depth on 10-day cycles. The network provides unprecedented insights into ocean circulation, heat content, and climate change impacts across all major ocean basins.",
-                        type: 'text'
-                    };
-                } else {
-                    return {
-                        content: "I understand you're asking about oceanographic data. Let me analyze the available ARGO datasets to provide you with evidence-based insights. I can help you explore temperature profiles, salinity patterns, current velocities, and other oceanographic parameters with full traceability to original data sources.",
-                        type: 'text'
-                    };
+                    
+                } catch (error) {
+                    console.error('Error calling FastAPI backend:', error);
+                    this.hideTypingIndicator();
+                    
+                    let errorMessage = "I apologize, but I'm having trouble connecting to the backend service. ";
+                    
+                    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                        errorMessage += "Please ensure the FastAPI server is running on http://localhost:7777 and that your network connection is stable.";
+                    } else if (error.message.includes('500')) {
+                        errorMessage += "The server encountered an internal error. Please try again in a moment.";
+                    } else if (error.message.includes('404')) {
+                        errorMessage += "The chat service endpoint was not found. Please check the API configuration.";
+                    } else {
+                        errorMessage += `Technical details: ${error.message}`;
+                    }
+                    
+                    this.addMessage(errorMessage, 'ai', 'error');
+                    
+                    // Fallback response if enabled
+                    if (CONFIG.ENABLE_FALLBACK) {
+                        setTimeout(() => {
+                            const fallbackResponse = this.getFallbackResponse(userMessage);
+                            this.addMessage("📝 Showing demonstration response while the backend is unavailable:", 'ai', 'text');
+                            this.addMessage(fallbackResponse, 'ai', 'text');
+                        }, 1500);
+                    }
+                    
+                    this.saveToRecentQueries(userMessage);
                 }
             }
 
-            generateTemperatureData() {
-                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-                const pacificData = months.map(() => 15 + Math.random() * 10);
-                const atlanticData = months.map(() => 12 + Math.random() * 8);
-                
-                return { months, pacificData, atlanticData };
+            async makeAPICall(url, options, retryCount = 0) {
+                try {
+                    const response = await fetch(url, options);
+                    return response;
+                } catch (error) {
+                    if (retryCount < CONFIG.MAX_RETRIES) {
+                        console.log(`API call failed, retrying (${retryCount + 1}/${CONFIG.MAX_RETRIES})...`);
+                        await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY));
+                        return this.makeAPICall(url, options, retryCount + 1);
+                    }
+                    throw error;
+                }
             }
 
-            renderChart(chartData) {
-                const chartId = `chart-${Date.now()}`;
-                const chartElement = document.getElementById(chartId);
+            getFallbackResponse(message) {
+                const lowerMessage = message.toLowerCase();
                 
-                if (chartElement) {
-                    const chart = echarts.init(chartElement);
-                    
-                    const option = {
-                        backgroundColor: 'transparent',
-                        tooltip: {
-                            trigger: 'axis',
-                            backgroundColor: 'rgba(42, 42, 42, 0.9)',
-                            borderColor: '#B87333',
-                            textStyle: { color: '#F8F6F3' }
-                        },
-                        legend: {
-                            data: ['Pacific Ocean', 'Atlantic Ocean'],
-                            textStyle: { color: '#2A2A2A' }
-                        },
-                        grid: {
-                            left: '3%',
-                            right: '4%',
-                            bottom: '3%',
-                            containLabel: true
-                        },
-                        xAxis: {
-                            type: 'category',
-                            data: chartData.months,
-                            axisLine: { lineStyle: { color: '#8B7D6B' } },
-                            axisLabel: { color: '#2A2A2A' }
-                        },
-                        yAxis: {
-                            type: 'value',
-                            name: 'Temperature (°C)',
-                            axisLine: { lineStyle: { color: '#8B7D6B' } },
-                            axisLabel: { color: '#2A2A2A' }
-                        },
-                        series: [
-                            {
-                                name: 'Pacific Ocean',
-                                type: 'line',
-                                smooth: true,
-                                data: chartData.pacificData,
-                                lineStyle: { color: '#B87333', width: 3 },
-                                itemStyle: { color: '#B87333' }
-                            },
-                            {
-                                name: 'Atlantic Ocean',
-                                type: 'line',
-                                smooth: true,
-                                data: chartData.atlanticData,
-                                lineStyle: { color: '#8B7D6B', width: 3 },
-                                itemStyle: { color: '#8B7D6B' }
-                            }
-                        ]
+                if (lowerMessage.includes('temperature') || lowerMessage.includes('temp')) {
+                    return "Based on oceanographic data patterns, ocean temperatures show significant regional variations. The global ocean has been experiencing warming trends, with surface temperatures increasing at an average rate of about 0.6°C per century in recent decades. ARGO floats provide crucial data for monitoring these temperature changes across different depths and regions.";
+                } else if (lowerMessage.includes('salinity')) {
+                    return "Ocean salinity varies significantly across different regions and depths. Typical surface salinity ranges from about 32-37 PSU (Practical Salinity Units), with the North Atlantic showing higher salinity due to evaporation, while polar regions often have lower salinity due to ice melt and freshwater input.";
+                } else if (lowerMessage.includes('current')) {
+                    return "Ocean currents play a crucial role in global climate and heat distribution. Major currents like the Gulf Stream, Kuroshio, and Antarctic Circumpolar Current transport heat and nutrients across ocean basins. Current velocities can range from a few centimeters per second to over 2 meters per second in strong boundary currents.";
+                } else if (lowerMessage.includes('argo')) {
+                    return "The ARGO program maintains a global array of approximately 4,000 autonomous profiling floats that measure temperature and salinity from the surface to 2000m depth every 10 days. This network provides unprecedented coverage of the global ocean and is essential for understanding ocean circulation and climate variability.";
+                } else {
+                    return "I'm here to help you explore oceanographic data and marine science topics. I can provide information about ocean temperatures, salinity patterns, current systems, ARGO float data, and climate-related changes in our oceans. Feel free to ask about specific regions, time periods, or phenomena you're interested in learning about.";
+                }
+            }
+
+            displayVisualizations(visualizations) {
+                for (const viz of visualizations) {
+                    const vizMessage = {
+                        description: viz.description || "Data visualization generated from your query",
+                        chart_url: viz.chart_url || viz.url,
+                        chart_type: viz.chart_type || "chart"
                     };
-                    
-                    chart.setOption(option);
+                    this.addMessage(vizMessage, 'ai', 'visualization');
+                }
+            }
+
+            displaySources(sources) {
+                if (sources.length > 0) {
+                    const sourcesText = `📚 **Sources:** ${sources.join(', ')}`;
+                    this.addMessage(sourcesText, 'ai', 'sources');
                 }
             }
 
@@ -765,6 +910,11 @@
                 const recentQueries = JSON.parse(localStorage.getItem('samudra_recent_queries') || '[]');
                 const container = document.getElementById('recent-queries');
                 
+                if (recentQueries.length === 0) {
+                    container.innerHTML = '<p class="text-sm text-warm-stone italic">No recent queries yet</p>';
+                    return;
+                }
+                
                 container.innerHTML = recentQueries.map(query => `
                     <button class="w-full text-left p-2 rounded-lg hover:bg-soft-cream transition-colors text-sm group">
                         <div class="font-medium text-deep-charcoal truncate">${query.query}</div>
@@ -812,7 +962,20 @@
 
             logout() {
                 localStorage.removeItem('samudra_user');
-                window.location.href = 'auth.html';
+                localStorage.removeItem('samudra_recent_queries');
+                // Since there's no auth.html, just reload the page
+                window.location.reload();
+            }
+
+            downloadChart(chartUrl) {
+                if (chartUrl) {
+                    const link = document.createElement('a');
+                    link.href = chartUrl;
+                    link.download = `samudra-chart-${Date.now()}.png`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
             }
 
             animateEntrance() {
@@ -838,9 +1001,62 @@
         }
 
         // Initialize chat app
+        let chatApp;
         document.addEventListener('DOMContentLoaded', () => {
-            new ChatApp();
+            chatApp = new ChatApp();
         });
+
+        // Export chat functionality
+        document.getElementById('export-chat')?.addEventListener('click', () => {
+            if (chatApp && chatApp.messages.length > 0) {
+                const chatData = {
+                    user: chatApp.user,
+                    messages: chatApp.messages,
+                    timestamp: new Date().toISOString()
+                };
+                
+                const blob = new Blob([JSON.stringify(chatData, null, 2)], {
+                    type: 'application/json'
+                });
+                
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `samudra-chat-${new Date().toISOString().slice(0, 10)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+        });
+
+        // Fullscreen functionality
+        document.getElementById('fullscreen')?.addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        // Chart modal functionality
+        const chartModal = document.getElementById('chart-modal');
+        const closeChart = document.getElementById('close-chart');
+        
+        closeChart?.addEventListener('click', () => {
+            chartModal.classList.add('hidden');
+        });
+        
+        chartModal?.addEventListener('click', (e) => {
+            if (e.target === chartModal) {
+                chartModal.classList.add('hidden');
+            }
+        });
+
+        // Handle service worker for offline functionality (optional)
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(err => {
+                console.log('Service worker registration failed:', err);
+            });
+        }
     </script>
 </body>
 </html>
